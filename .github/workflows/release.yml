@@ -1,5 +1,3 @@
-# Based partially on Alyxia's work, thanks so much!
-
 name: Release
 on:
   push:
@@ -48,29 +46,25 @@ jobs:
           git apply patches/wayland.patch
 
       - name: Build GUI (X11)
-        run:
-          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -v -tags static -ldflags "-s
+        run: CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -v -tags static -ldflags "-s
           -w -X 'equilotl/buildinfo.InstallerGitHash=$(git rev-parse --short
           HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{ github.ref_name }}'" -o
           Equilotl-x11
 
       - name: Build GUI (Wayland)
-        run:
-          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -v -tags "static wayland"
+        run: CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -v -tags "static wayland"
           -ldflags "-s -w -X 'equilotl/buildinfo.InstallerGitHash=$(git
           rev-parse --short HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{
           github.ref_name }}'" -o Equilotl-wayland
 
       - name: Build GUI (Combined)
-        run:
-          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -v -tags "static combined"
+        run: CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -v -tags "static combined"
           -ldflags "-s -w -X 'equilotl/buildinfo.InstallerGitHash=$(git
           rev-parse --short HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{
           github.ref_name }}'" -o Equilotl
 
       - name: Build CLI
-        run:
-          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -v -tags "cli" -ldflags "-s
+        run: CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -v -tags "cli" -ldflags "-s
           -w -X 'equilotl/buildinfo.InstallerGitHash=$(git rev-parse --short
           HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{ github.ref_name }}'" -o
           EquilotlCli-linux
@@ -90,21 +84,8 @@ jobs:
             EquilotlCli-linux
 
   build-mac:
-    runs-on: ${{ matrix.runner }}
+    runs-on: macos-latest
 
-    strategy:
-      matrix:
-        include:
-          - arch: amd64
-            runner: macos-15-intel
-            artifact_name: Equilotl-macos
-            gui_name: Equilotl-darwin-x64.zip
-            cli_name: EquilotlCli-darwin-x64
-          - arch: arm64
-            runner: macos-latest
-            artifact_name: Equilotl-macos-arm64
-            gui_name: Equilotl-darwin-arm64.zip
-            cli_name: EquilotlCli-darwin-arm64
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -119,12 +100,12 @@ jobs:
           path: |
             ~/Library/Caches/go-build
             ~/go/pkg/mod
-          key: ${{ runner.os }}-${{ matrix.arch }}-go-${{ hashFiles('**/go.sum') }}
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
-            ${{ runner.os }}-${{ matrix.arch }}-go-
+            ${{ runner.os }}-go-
 
       - name: Install dependencies
-        run: brew install sdl2
+        run: brew install pkg-config sdl2
 
       - name: Install Go dependencies
         run: go get -v
@@ -132,18 +113,9 @@ jobs:
       - name: Build GUI
         run: CGO_CFLAGS="-mmacosx-version-min=10.15"
           CGO_LDFLAGS="-mmacosx-version-min=10.15" CGO_ENABLED=1 GOOS=darwin
-          GOARCH=${{ matrix.arch }} go build -v -tags "static gui" -ldflags "-s
-          -w -X 'equilotl/buildinfo.InstallerGitHash=$(git rev-parse --short
-          HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{ github.ref_name }}'" -o
-          Equilotl
-
-      - name: Build CLI
-        run: CGO_CFLAGS="-mmacosx-version-min=10.15"
-          CGO_LDFLAGS="-mmacosx-version-min=10.15" CGO_ENABLED=1 GOOS=darwin
-          GOARCH=${{ matrix.arch }} go build -v -tags "cli" -ldflags "-s
-          -w -X 'equilotl/buildinfo.InstallerGitHash=$(git rev-parse --short
-          HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{ github.ref_name }}'" -o
-          ${{ matrix.cli_name }}
+          GOARCH=amd64 go build -v -tags "static gui" -ldflags "-s -w -X
+          'equilotl/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X
+          'equilotl/buildinfo.InstallerTag=${{ github.ref_name }}'" -o Equilotl
 
       - name: Update executable
         run: |
@@ -157,7 +129,19 @@ jobs:
           mv Equilotl Equilotl.app/Contents/MacOS/Equilotl
           cp macos/icon.icns Equilotl.app/Contents/Resources/icon.icns
 
+      - name: Check if signing certificate is available
+        id: check_cert
+        env:
+          CERT_AVAILABLE: ${{ secrets.APPLE_SIGNING_CERT }}
+        run: |
+          if [ -n "$CERT_AVAILABLE" ]; then
+            echo "has_cert=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_cert=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Import signing certificate
+        if: steps.check_cert.outputs.has_cert == 'true'
         env:
           CSC_LINK: ${{ secrets.APPLE_SIGNING_CERT }}
           CSC_KEY_PASSWORD: ${{ secrets.APPLE_SIGNING_CERT_PASSWORD }}
@@ -170,13 +154,14 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" build.keychain
           rm certificate.p12
 
-      - name: Sign the executables
+      - name: Sign the app
+        if: steps.check_cert.outputs.has_cert == 'true'
         run: |
           codesign --force --options runtime --sign "Developer ID Application" Equilotl.app/Contents/MacOS/Equilotl
           codesign --force --options runtime --sign "Developer ID Application" Equilotl.app
-          codesign --force --options runtime --sign "Developer ID Application" ${{ matrix.cli_name }}
 
-      - name: Notarize the executables
+      - name: Notarize the app
+        if: steps.check_cert.outputs.has_cert == 'true'
         env:
           API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
@@ -184,22 +169,19 @@ jobs:
         run: |
           echo "$API_KEY" > apple.p8
           ditto -c -k --keepParent Equilotl.app Equilotl-notarize.zip
-          ditto -c -k ${{ matrix.cli_name }} EquilotlCli-notarize.zip
           xcrun notarytool submit Equilotl-notarize.zip --key apple.p8 --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER" --wait
           xcrun stapler staple Equilotl.app
-          xcrun notarytool submit EquilotlCli-notarize.zip --key apple.p8 --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER" --wait
-          rm apple.p8 Equilotl-notarize.zip EquilotlCli-notarize.zip
+          rm apple.p8 Equilotl-notarize.zip
 
       - name: Create final zip
-        run: zip -r ${{ matrix.gui_name }} Equilotl.app
+        run: zip -r Equilotl.MacOS.zip Equilotl.app
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ matrix.artifact_name }}
+          name: Equilotl-macos
           path: |
-            ${{ matrix.gui_name }}
-            ${{ matrix.cli_name }}
+            Equilotl.MacOS.zip
 
   build-windows:
     runs-on: windows-latest
@@ -259,7 +241,7 @@ jobs:
 
   release:
     runs-on: ubuntu-latest
-    needs: [build-linux, build-mac, build-windows]
+    needs: [ build-linux, build-mac, build-windows ]
 
     steps:
       - name: Checkout code
@@ -275,11 +257,6 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: Equilotl-macos
-          path: macos
-
-      - uses: actions/download-artifact@v8
-        with:
-          name: Equilotl-macos-arm64
           path: macos
 
       - name: "Download Windows Artifacts"
@@ -309,8 +286,5 @@ jobs:
             linux/Equilotl-wayland
             linux/Equilotl
             linux/EquilotlCli-linux
-            macos/Equilotl-darwin-x64.zip
-            macos/Equilotl-darwin-arm64.zip
-            macos/EquilotlCli-darwin-x64
-            macos/EquilotlCli-darwin-arm64
+            macos/Equilotl.MacOS.zip
             windows/Equilotl*.exe
