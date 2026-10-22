@@ -49,18 +49,24 @@ func GetInstallerDownloadLink() string {
 	const BaseUrl = "https://github.com/phklie/Equilotl/releases/latest/download/"
 	switch runtime.GOOS {
 	case "windows":
-		filename := Ternary(buildinfo.UiType == buildinfo.UiTypeCli, "EquilotlCli.exe", "Equilotl.exe")
-		return BaseUrl + filename
+		filename := Ternary(buildinfo.UiType == buildinfo.UiTypeCli, "EquilotlCli", "Equilotl")
+		if runtime.GOARCH == "arm64" {
+			filename += "-arm64"
+		}
+		return BaseUrl + filename + ".exe"
 	case "darwin":
 		switch runtime.GOARCH {
 		case "amd64":
-			return BaseUrl + "Equilotl-darwin-x64.zip"
+			return BaseUrl + "Equilotl-x64.dmg"
 		case "arm64":
-			return BaseUrl + "Equilotl-darwin-arm64.zip"
+			return BaseUrl + "Equilotl-arm64.dmg"
 		default:
 			return ""
 		}
 	case "linux":
+		if runtime.GOARCH == "arm64" {
+			return BaseUrl + "EquilotlCli-linux-arm64"
+		}
 		return BaseUrl + "EquilotlCli-linux"
 	default:
 		return ""
