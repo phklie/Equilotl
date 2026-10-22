@@ -15,12 +15,42 @@ permissions:
   contents: write
 
 jobs:
+  # Finds the tag to build: the pushed tag, or the latest tag when run manually
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            TAG="$GITHUB_REF_NAME"
+          else
+            TAG=$(git tag --sort=-creatordate | head -n 1)
+          fi
+          if [ -z "$TAG" ]; then
+            echo "No tags found in this repo. Create one first: git tag v1.0.0 && git push origin v1.0.0"
+            exit 1
+          fi
+          echo "Using tag: $TAG"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
   build-linux:
     runs-on: ubuntu-latest
+    needs: version
 
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+          fetch-depth: 0
 
       - name: Install Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -50,16 +80,16 @@ jobs:
           git apply patches/wayland.patch
 
       - name: Build GUI (X11)
-        run: CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -v -tags static -ldflags "-s -w -X 'equilotl/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{ github.ref_name }}'" -o Equilotl-x11
+        run: CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -v -tags static -ldflags "-s -w -X 'equilotl/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{ needs.version.outputs.tag }}'" -o Equilotl-x11
 
       - name: Build GUI (Wayland)
-        run: CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -v -tags "static wayland" -ldflags "-s -w -X 'equilotl/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{ github.ref_name }}'" -o Equilotl-wayland
+        run: CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -v -tags "static wayland" -ldflags "-s -w -X 'equilotl/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{ needs.version.outputs.tag }}'" -o Equilotl-wayland
 
       - name: Build GUI (Combined)
-        run: CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -v -tags "static combined" -ldflags "-s -w -X 'equilotl/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{ github.ref_name }}'" -o Equilotl
+        run: CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -v -tags "static combined" -ldflags "-s -w -X 'equilotl/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{ needs.version.outputs.tag }}'" -o Equilotl
 
       - name: Build CLI
-        run: CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -v -tags "cli" -ldflags "-s -w -X 'equilotl/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{ github.ref_name }}'" -o EquilotlCli-linux
+        run: CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -v -tags "cli" -ldflags "-s -w -X 'equilotl/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{ needs.version.outputs.tag }}'" -o EquilotlCli-linux
 
       - name: Update executable
         run: |
@@ -77,10 +107,14 @@ jobs:
 
   build-linux-arm64:
     runs-on: ubuntu-24.04-arm
+    needs: version
 
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+          fetch-depth: 0
 
       - name: Install Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -110,16 +144,16 @@ jobs:
           git apply patches/wayland.patch
 
       - name: Build GUI (X11)
-        run: CGO_ENABLED=1 GOOS=linux GOARCH=arm64 go build -v -tags static -ldflags "-s -w -X 'equilotl/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{ github.ref_name }}'" -o Equilotl-x11-arm64
+        run: CGO_ENABLED=1 GOOS=linux GOARCH=arm64 go build -v -tags static -ldflags "-s -w -X 'equilotl/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{ needs.version.outputs.tag }}'" -o Equilotl-x11-arm64
 
       - name: Build GUI (Wayland)
-        run: CGO_ENABLED=1 GOOS=linux GOARCH=arm64 go build -v -tags "static wayland" -ldflags "-s -w -X 'equilotl/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{ github.ref_name }}'" -o Equilotl-wayland-arm64
+        run: CGO_ENABLED=1 GOOS=linux GOARCH=arm64 go build -v -tags "static wayland" -ldflags "-s -w -X 'equilotl/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{ needs.version.outputs.tag }}'" -o Equilotl-wayland-arm64
 
       - name: Build GUI (Combined)
-        run: CGO_ENABLED=1 GOOS=linux GOARCH=arm64 go build -v -tags "static combined" -ldflags "-s -w -X 'equilotl/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{ github.ref_name }}'" -o Equilotl-arm64
+        run: CGO_ENABLED=1 GOOS=linux GOARCH=arm64 go build -v -tags "static combined" -ldflags "-s -w -X 'equilotl/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{ needs.version.outputs.tag }}'" -o Equilotl-arm64
 
       - name: Build CLI
-        run: CGO_ENABLED=1 GOOS=linux GOARCH=arm64 go build -v -tags "cli" -ldflags "-s -w -X 'equilotl/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{ github.ref_name }}'" -o EquilotlCli-linux-arm64
+        run: CGO_ENABLED=1 GOOS=linux GOARCH=arm64 go build -v -tags "cli" -ldflags "-s -w -X 'equilotl/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{ needs.version.outputs.tag }}'" -o EquilotlCli-linux-arm64
 
       - name: Update executable
         run: |
@@ -137,6 +171,7 @@ jobs:
 
   build-mac:
     runs-on: ${{ matrix.runner }}
+    needs: version
 
     strategy:
       matrix:
@@ -153,6 +188,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+          fetch-depth: 0
 
       - name: Install Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -177,7 +215,7 @@ jobs:
       # IDENTITY="-" means ad-hoc signing (no Apple Developer account needed)
       - name: Build DMG
         run: |
-          make ARCH=${{ matrix.arch }} GUI=1 DMG=1 IDENTITY="-" VERSION=${{ github.ref_name }}
+          make ARCH=${{ matrix.arch }} GUI=1 DMG=1 IDENTITY="-" VERSION=${{ needs.version.outputs.tag }}
           mv build/Equilotl.dmg ${{ matrix.dmg_name }}
 
       - name: Upload artifact
@@ -188,10 +226,14 @@ jobs:
 
   build-mac-dmg:
     runs-on: macos-latest
+    needs: version
 
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+          fetch-depth: 0
 
       - name: Install Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -214,15 +256,15 @@ jobs:
         run: go get -v
 
       - name: Build universal DMG
-        run: make ARCH=universal GUI=1 DMG=1 IDENTITY="-" VERSION=${{ github.ref_name }}
+        run: make ARCH=universal GUI=1 DMG=1 IDENTITY="-" VERSION=${{ needs.version.outputs.tag }}
 
       - name: Build CLI
         run: |
-          make ARCH=amd64 GUI=0 VERSION=${{ github.ref_name }}
+          make ARCH=amd64 GUI=0 VERSION=${{ needs.version.outputs.tag }}
           mv build/EquilotlCli-darwin build/EquilotlCli-x64
-          make ARCH=arm64 GUI=0 VERSION=${{ github.ref_name }}
+          make ARCH=arm64 GUI=0 VERSION=${{ needs.version.outputs.tag }}
           mv build/EquilotlCli-darwin build/EquilotlCli-arm64
-          make ARCH=universal GUI=0 VERSION=${{ github.ref_name }}
+          make ARCH=universal GUI=0 VERSION=${{ needs.version.outputs.tag }}
           mv build/EquilotlCli-darwin build/EquilotlCli-universal
           for f in build/EquilotlCli-*; do
             codesign --force --sign - "$f"
@@ -241,10 +283,14 @@ jobs:
 
   build-windows:
     runs-on: windows-latest
+    needs: version
 
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+          fetch-depth: 0
 
       - name: Install Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -276,17 +322,16 @@ jobs:
           go get -v
           go install github.com/tc-hib/go-winres@d743268d7ea168077ddd443c4240562d4f5e8c3e  # v0.3.3
 
-      # "git-tag" needs a tag; for manual runs without a tag we use a fixed version
-      - name: Build GUI
+            - name: Build GUI
         shell: msys2 {0}
         run: |
-          go-winres make --product-version "${{ startsWith(github.ref, 'refs/tags/') && 'git-tag' || '0.0.0.0' }}"
-          CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -v -tags "static gui" -ldflags "-s -w -H=windowsgui -extldflags=-static -X 'equilotl/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{ github.ref_name }}'" -o Equilotl.exe
+          go-winres make --product-version "git-tag"
+          CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -v -tags "static gui" -ldflags "-s -w -H=windowsgui -extldflags=-static -X 'equilotl/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{ needs.version.outputs.tag }}'" -o Equilotl.exe
 
       - name: Build CLI
         shell: msys2 {0}
         run: |
-          CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -v -tags "cli" -ldflags "-s -w -X 'equilotl/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{ github.ref_name }}'" -o EquilotlCli.exe
+          CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -v -tags "cli" -ldflags "-s -w -X 'equilotl/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{ needs.version.outputs.tag }}'" -o EquilotlCli.exe
           cp EquilotlCli.exe EquilotlCli-x64.exe
 
       - name: Upload artifact
@@ -300,10 +345,14 @@ jobs:
 
   build-windows-arm64:
     runs-on: windows-latest # ARM64 binaries are cross-compiled
+    needs: version
 
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+          fetch-depth: 0
 
       - name: Install Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -340,13 +389,13 @@ jobs:
       - name: Build GUI
         shell: bash
         run: |
-          "$(go env GOPATH)/bin/go-winres" make --arch arm64 --product-version "${{ startsWith(github.ref, 'refs/tags/') && 'git-tag' || '0.0.0.0' }}"
-          CGO_ENABLED=1 GOOS=windows GOARCH=arm64 CC=aarch64-w64-mingw32-clang CXX=aarch64-w64-mingw32-clang++ go build -v -tags "static gui" -ldflags "-s -w -H=windowsgui -extldflags=-static -X 'equilotl/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{ github.ref_name }}'" -o Equilotl-arm64.exe
+          "$(go env GOPATH)/bin/go-winres" make --arch arm64 --product-version "git-tag"
+          CGO_ENABLED=1 GOOS=windows GOARCH=arm64 CC=aarch64-w64-mingw32-clang CXX=aarch64-w64-mingw32-clang++ go build -v -tags "static gui" -ldflags "-s -w -H=windowsgui -extldflags=-static -X 'equilotl/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{ needs.version.outputs.tag }}'" -o Equilotl-arm64.exe
 
       - name: Build CLI
         shell: bash
         run: |
-          CGO_ENABLED=0 GOOS=windows GOARCH=arm64 go build -v -tags "cli" -ldflags "-s -w -X 'equilotl/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{ github.ref_name }}'" -o EquilotlCli-arm64.exe
+          CGO_ENABLED=0 GOOS=windows GOARCH=arm64 go build -v -tags "cli" -ldflags "-s -w -X 'equilotl/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{ needs.version.outputs.tag }}'" -o EquilotlCli-arm64.exe
 
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -357,12 +406,10 @@ jobs:
             EquilotlCli-arm64.exe
 
   release:
-    # Only publish a GitHub release when triggered by a tag.
-    # For manual runs, just grab the files from the run's Artifacts section.
-    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     needs:
       [
+        version,
         build-linux,
         build-linux-arm64,
         build-mac,
@@ -374,6 +421,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+          fetch-depth: 0
 
       - name: "Download Linux Artifacts"
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -417,21 +467,22 @@ jobs:
           path: windows
 
       - name: Delete existing release
-        run: gh release delete "${{ github.ref_name }}" --yes || true
+        run: gh release delete "${{ needs.version.outputs.tag }}" --yes || true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create the release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
-          name: ${{ github.ref_name }}
+          tag_name: ${{ needs.version.outputs.tag }}
+          name: ${{ needs.version.outputs.tag }}
           token: ${{ secrets.GITHUB_TOKEN }}
           generate_release_notes: true
-          make_latest: ${{ !contains(github.ref_name, '-') }}
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ !contains(needs.version.outputs.tag, '-') }}
+          prerelease: ${{ contains(needs.version.outputs.tag, '-') }}
           draft: false
           body: |
-            This is release ${{ github.ref_name }} of Equilotl.
+            This is release ${{ needs.version.outputs.tag }} of Equilotl.
 
             Note: binaries in this release are unsigned. Windows may show a SmartScreen warning,
             and macOS may require right-click → Open the first time.
