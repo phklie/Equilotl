@@ -1,7 +1,9 @@
 # Based partially on Alyxia's work, thanks so much!
+# Fork version: no code signing / notarization (no secrets needed)
 
 name: Release
 on:
+  workflow_dispatch:
   push:
     tags:
       - v*
@@ -11,11 +13,10 @@ env:
 
 permissions:
   contents: write
-  actions: read # SignPath fetches the unsigned artifact through the workflow token
 
 jobs:
   build-linux:
-    runs-on: ubuntu-latest # Go without CGO seems to not depend on glibc, so building on latest should be fine
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
@@ -49,32 +50,16 @@ jobs:
           git apply patches/wayland.patch
 
       - name: Build GUI (X11)
-        run:
-          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -v -tags static -ldflags "-s
-          -w -X 'equilotl/buildinfo.InstallerGitHash=$(git rev-parse --short
-          HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{ github.ref_name }}'" -o
-          Equilotl-x11
+        run: CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -v -tags static -ldflags "-s -w -X 'equilotl/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{ github.ref_name }}'" -o Equilotl-x11
 
       - name: Build GUI (Wayland)
-        run:
-          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -v -tags "static wayland"
-          -ldflags "-s -w -X 'equilotl/buildinfo.InstallerGitHash=$(git
-          rev-parse --short HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{
-          github.ref_name }}'" -o Equilotl-wayland
+        run: CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -v -tags "static wayland" -ldflags "-s -w -X 'equilotl/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{ github.ref_name }}'" -o Equilotl-wayland
 
       - name: Build GUI (Combined)
-        run:
-          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -v -tags "static combined"
-          -ldflags "-s -w -X 'equilotl/buildinfo.InstallerGitHash=$(git
-          rev-parse --short HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{
-          github.ref_name }}'" -o Equilotl
+        run: CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -v -tags "static combined" -ldflags "-s -w -X 'equilotl/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{ github.ref_name }}'" -o Equilotl
 
       - name: Build CLI
-        run:
-          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -v -tags "cli" -ldflags "-s
-          -w -X 'equilotl/buildinfo.InstallerGitHash=$(git rev-parse --short
-          HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{ github.ref_name }}'" -o
-          EquilotlCli-linux
+        run: CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -v -tags "cli" -ldflags "-s -w -X 'equilotl/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{ github.ref_name }}'" -o EquilotlCli-linux
 
       - name: Update executable
         run: |
@@ -91,7 +76,7 @@ jobs:
             EquilotlCli-linux
 
   build-linux-arm64:
-    runs-on: ubuntu-24.04-arm # Native ARM64 runner, the GUI needs ARM64 X11/Wayland/GL libraries
+    runs-on: ubuntu-24.04-arm
 
     steps:
       - name: Checkout code
@@ -189,34 +174,11 @@ jobs:
       - name: Install Go dependencies
         run: go get -v
 
-      - name: Import signing certificate
-        env:
-          CSC_LINK: ${{ secrets.APPLE_SIGNING_CERT }}
-          CSC_KEY_PASSWORD: ${{ secrets.APPLE_SIGNING_CERT_PASSWORD }}
-        run: |
-          echo "$CSC_LINK" | base64 --decode > certificate.p12
-          security create-keychain -p "" build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "" build.keychain
-          security import certificate.p12 -k build.keychain -P "$CSC_KEY_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" build.keychain
-          rm certificate.p12
-
+      # IDENTITY="-" means ad-hoc signing (no Apple Developer account needed)
       - name: Build DMG
         run: |
-          make ARCH=${{ matrix.arch }} GUI=1 DMG=1 IDENTITY="Developer ID Application" VERSION=${{ github.ref_name }}
+          make ARCH=${{ matrix.arch }} GUI=1 DMG=1 IDENTITY="-" VERSION=${{ github.ref_name }}
           mv build/Equilotl.dmg ${{ matrix.dmg_name }}
-
-      - name: Notarize the DMG
-        env:
-          API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-        run: |
-          echo "$API_KEY" > apple.p8
-          xcrun notarytool submit ${{ matrix.dmg_name }} --key apple.p8 --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER" --wait
-          xcrun stapler staple ${{ matrix.dmg_name }}
-          rm apple.p8
 
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -251,32 +213,8 @@ jobs:
       - name: Install Go dependencies
         run: go get -v
 
-      - name: Import signing certificate
-        env:
-          CSC_LINK: ${{ secrets.APPLE_SIGNING_CERT }}
-          CSC_KEY_PASSWORD: ${{ secrets.APPLE_SIGNING_CERT_PASSWORD }}
-        run: |
-          echo "$CSC_LINK" | base64 --decode > certificate.p12
-          security create-keychain -p "" build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "" build.keychain
-          security import certificate.p12 -k build.keychain -P "$CSC_KEY_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" build.keychain
-          rm certificate.p12
-
       - name: Build universal DMG
-        run: make ARCH=universal GUI=1 DMG=1 IDENTITY="Developer ID Application" VERSION=${{ github.ref_name }}
-
-      - name: Notarize the DMG
-        env:
-          API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-        run: |
-          echo "$API_KEY" > apple.p8
-          xcrun notarytool submit build/Equilotl.dmg --key apple.p8 --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER" --wait
-          xcrun stapler staple build/Equilotl.dmg
-          rm apple.p8
+        run: make ARCH=universal GUI=1 DMG=1 IDENTITY="-" VERSION=${{ github.ref_name }}
 
       - name: Build CLI
         run: |
@@ -287,23 +225,9 @@ jobs:
           make ARCH=universal GUI=0 VERSION=${{ github.ref_name }}
           mv build/EquilotlCli-darwin build/EquilotlCli-universal
           for f in build/EquilotlCli-*; do
-            codesign --force --options runtime --sign "Developer ID Application" "$f"
+            codesign --force --sign - "$f"
             lipo -info "$f"
           done
-
-      - name: Notarize the CLI
-        env:
-          API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-        run: |
-          echo "$API_KEY" > apple.p8
-          for f in build/EquilotlCli-*; do
-            ditto -c -k "$f" "$f.zip"
-            xcrun notarytool submit "$f.zip" --key apple.p8 --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER" --wait
-            rm "$f.zip"
-          done
-          rm apple.p8
 
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -352,51 +276,30 @@ jobs:
           go get -v
           go install github.com/tc-hib/go-winres@d743268d7ea168077ddd443c4240562d4f5e8c3e  # v0.3.3
 
+      # "git-tag" needs a tag; for manual runs without a tag we use a fixed version
       - name: Build GUI
         shell: msys2 {0}
         run: |
-          go-winres make --product-version "git-tag"
+          go-winres make --product-version "${{ startsWith(github.ref, 'refs/tags/') && 'git-tag' || '0.0.0.0' }}"
           CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -v -tags "static gui" -ldflags "-s -w -H=windowsgui -extldflags=-static -X 'equilotl/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{ github.ref_name }}'" -o Equilotl.exe
 
       - name: Build CLI
         shell: msys2 {0}
         run: |
           CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -v -tags "cli" -ldflags "-s -w -X 'equilotl/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{ github.ref_name }}'" -o EquilotlCli.exe
-          cp EquilotlCli.exe EquilotlCli-x64.exe # Explicit arch in the name, winget picks installers by it
+          cp EquilotlCli.exe EquilotlCli-x64.exe
 
-      - name: Upload unsigned artifact
-        id: upload-unsigned
+      - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: Equilotl-windows-unsigned
+          name: Equilotl-windows
           path: |
             Equilotl.exe
             EquilotlCli.exe
             EquilotlCli-x64.exe
 
-      - name: Submit SignPath signing request
-        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
-        with:
-          api-token: ${{ secrets.SIGNPATH_API_KEY }}
-          organization-id: ${{ secrets.SIGNPATH_ORG_ID }}
-          project-slug: Equilotl
-          signing-policy-slug: test-signing
-          artifact-configuration-slug: x64
-          github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
-          wait-for-completion: true
-          output-artifact-directory: windows-signed/
-
-      - name: Upload signed artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: Equilotl-windows
-          path: |
-            windows-signed/Equilotl.exe
-            windows-signed/EquilotlCli.exe
-            windows-signed/EquilotlCli-x64.exe
-
   build-windows-arm64:
-    runs-on: windows-latest # No ARM64 runner needed, the ARM64 binaries are cross-compiled
+    runs-on: windows-latest # ARM64 binaries are cross-compiled
 
     steps:
       - name: Checkout code
@@ -437,7 +340,7 @@ jobs:
       - name: Build GUI
         shell: bash
         run: |
-          "$(go env GOPATH)/bin/go-winres" make --arch arm64 --product-version "git-tag"
+          "$(go env GOPATH)/bin/go-winres" make --arch arm64 --product-version "${{ startsWith(github.ref, 'refs/tags/') && 'git-tag' || '0.0.0.0' }}"
           CGO_ENABLED=1 GOOS=windows GOARCH=arm64 CC=aarch64-w64-mingw32-clang CXX=aarch64-w64-mingw32-clang++ go build -v -tags "static gui" -ldflags "-s -w -H=windowsgui -extldflags=-static -X 'equilotl/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{ github.ref_name }}'" -o Equilotl-arm64.exe
 
       - name: Build CLI
@@ -445,36 +348,18 @@ jobs:
         run: |
           CGO_ENABLED=0 GOOS=windows GOARCH=arm64 go build -v -tags "cli" -ldflags "-s -w -X 'equilotl/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'equilotl/buildinfo.InstallerTag=${{ github.ref_name }}'" -o EquilotlCli-arm64.exe
 
-      - name: Upload unsigned artifact
-        id: upload-unsigned
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: Equilotl-windows-arm64-unsigned
-          path: |
-            Equilotl-arm64.exe
-            EquilotlCli-arm64.exe
-
-      - name: Submit SignPath signing request
-        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
-        with:
-          api-token: ${{ secrets.SIGNPATH_API_KEY }}
-          organization-id: ${{ secrets.SIGNPATH_ORG_ID }}
-          project-slug: Equilotl
-          signing-policy-slug: test-signing
-          artifact-configuration-slug: arm64
-          github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
-          wait-for-completion: true
-          output-artifact-directory: windows-signed/
-
-      - name: Upload signed artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: Equilotl-windows-arm64
           path: |
-            windows-signed/Equilotl-arm64.exe
-            windows-signed/EquilotlCli-arm64.exe
+            Equilotl-arm64.exe
+            EquilotlCli-arm64.exe
 
   release:
+    # Only publish a GitHub release when triggered by a tag.
+    # For manual runs, just grab the files from the run's Artifacts section.
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     needs:
       [
@@ -548,7 +433,8 @@ jobs:
           body: |
             This is release ${{ github.ref_name }} of Equilotl.
 
-            Windows binaries are code signed via [SignPath](https://signpath.io).
+            Note: binaries in this release are unsigned. Windows may show a SmartScreen warning,
+            and macOS may require right-click → Open the first time.
           files: |
             linux/Equilotl-x11
             linux/Equilotl-wayland
